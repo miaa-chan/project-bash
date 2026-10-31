@@ -1,0 +1,560 @@
+#!/usr/bin/env bash
+
+# Project Bash — a Miku-fied audio player >:3
+# usage: pbash [FOLDER|FILE ...]          (default folder: ~/Music)
+
+# ───────────────────────── settings you can always edit :3 ─────────────────────────
+MUSIC_DIR=${PROJECT_BASH_MUSIC:-$(xdg-user-dir MUSIC)}
+ART_FILE=${PROJECT_BASH_ART:-$HOME/.local/share/project-bash/miku.txt} # optional: your own ASCII art
+EXT_RE='\.(mp3|flac|ogg|opus|wav|m4a|aac)$'                            # which files count as songs
+SEEK_STEP=10                                                           # seconds per left / right
+VOL_STEP=5                                                             # percent per up / down
+
+# ───────────────────────── colours ─────────────────────────
+if [ -n "${NO_COLOR:-}" ]; then
+  rgb() { :; }
+  RST=""
+  BOLD=""
+else
+  rgb() { printf '\e[38;2;%d;%d;%dm' "$1" "$2" "$3"; }
+  RST=$'\e[0m'
+  BOLD=$'\e[1m'
+fi
+TEAL=$(rgb 57 197 187)
+LTEAL=$(rgb 134 206 203)
+PINK=$(rgb 225 40 133)
+LEEK=$(rgb 198 227 119)
+DIM=$(rgb 120 160 160)
+
+# ───────────────────────── the pretty stuff >:3  ─────────────────────────
+# ascii art from emojicombos, if anyone reads this
+miku_art() {
+  cat <<'EOF'
+⠀⠀⠀⠀⠀⠀⢀⡤⣢⠟⢁⣴⣾⡿⠋⢉⠱⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠉⠑⠒⠦⢄⣀⣴⠟⢡⣠⣼⣿⡿⢳⣄⡀⠀⠀
+⠀⠀⠀⠀⠀⢀⣾⡿⠃⣠⣿⣿⠿⠂⠀⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢲⡿⠋⢰⣾⣿⣿⡟⠀⠀⠈⠙⢆⠀
+⠀⠀⠀⠀⠀⡜⠻⣷⣾⣿⠟⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢰⣿⣁⣰⢸⣿⢻⠟⢀⠀⠀⠀⠀⠀⠁
+⠀⠀⠀⠀⠰⠀⠀⢙⡿⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢻⣿⣿⣿⣿⣯⡀⠀⢃⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⢠⠎⠀⠀⠀⠀⠀⠀⣼⠀⢀⠀⠀⠀⠀⠀⢠⣷⡀⠀⠀⠀⠀⡀⠄⠀⠀⠀⠀⢻⣿⣿⣿⣧⠑⠀⣢⡄⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⡰⠃⢀⠄⠀⠀⠀⠀⣼⡿⡆⢸⠀⠀⠀⠀⠀⠈⣿⢷⡄⠀⠀⠀⠱⡀⠰⡀⠀⠀⠈⢿⣿⣿⣿⣧⠀⢸⣧⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠡⢢⠋⠀⠀⠀⠀⣼⡟⠀⣇⢸⡆⠀⠀⠀⡄⠀⢿⠀⢳⡄⠀⠀⠀⢳⠀⢳⠀⠀⠀⠈⣿⣿⣿⣿⣷⣘⡟⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⢀⠇⠀⠀⠀⠀⣸⡿⢤⠤⠸⡸⣷⠀⠀⠀⢱⠀⣾⡤⠤⢿⡤⢀⡀⠀⢧⠘⡆⠀⠀⠀⢸⡟⠻⢿⠟⣿⣷⡄⠀⠀⠀
+⠀⠀⠀⠀⠀⡞⠀⠀⠀⠀⢰⡿⢠⠇⠀⠀⢳⣿⢇⠀⠀⠈⡇⣿⡇⠀⠀⠻⣄⠀⠀⠘⡆⡇⠀⠀⠀⠀⣇⢀⡏⠀⣿⡿⣄⠀⠀⠀
+⠀⠀⠀⠀⢰⠁⠀⠀⠀⠀⣿⠁⣄⣀⣀⡀⠈⢿⡜⡄⠀⠀⢹⣿⡇⠐⢄⣀⠘⢧⡀⠀⠹⣿⠀⠀⠀⠀⢸⣿⣷⣶⣿⡇⢹⡇⠀⠀
+⠀⠀⠀⠀⠾⠀⠀⠀⠀⢸⣧⣾⠟⢉⣽⣿⣦⠈⢷⡘⣆⠀⠸⡟⣷⣶⠟⠛⢻⣷⣦⣀⠀⢻⠀⠀⠀⠀⢸⣏⣩⣼⣿⡇⠈⣷⠀⠀
+⠀⠀⠀⠃⠀⠀⠀⠀⠀⣿⡿⠁⠀⣠⣾⣿⣿⠀⠈⢿⠺⡆⠀⣧⢸⠀⠀⢀⣹⣿⣿⣿⣷⣼⣤⠀⠀⠀⢸⣿⣿⣿⣿⠀⠀⣿⠀⠀
+⠀⠀⣠⠄⣀⠀⠀⠀⢠⣿⡇⠀⠀⢻⢻⣟⢿⠀⠀⠈⠣⠈⠓⠾⠀⠀⠀⣿⣿⢿⣿⣿⠘⡇⡞⠀⠀⢠⣾⣿⣿⣿⡏⠀⠀⢹⠀⠀
+⠀⠀⠛⠀⣿⠀⠀⠀⢸⣿⣿⡀⠀⠈⠃⠐⠋⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠸⣄⣐⣠⠏⢠⣿⠁⠀⠀⢸⣿⣿⣿⣿⠀⠀⠀⢸⠀⠀
+⠀⠀⠀⠀⢹⡆⠰⡀⢸⡟⠩⣷⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣼⠃⠀⠀⠀⢸⣿⣿⣿⠟⠀⠀⠀⠘⠀⠀
+⠀⠀⠀⠀⢎⣿⡀⢱⢞⣁⣀⡿⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⠞⡏⡼⠀⠀⠀⣾⣿⠋⠁⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠈⠿⠻⡇⠀⠀⠒⠢⢵⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢰⣽⠁⠀⠀⢠⡿⢹⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⡀⠀⠀⠀⠀⠀⠀⡟⣦⡀⠀⠀⠀⠈⠓⢄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣴⢿⡇⠀⠀⡄⣸⣇⣼⣀⣀⣀⠀⠀⠀⠀⠀⠀
+⡀⠀⠀⠀⠀⠀⢰⠇⣿⢸⣦⡀⠀⠀⠀⠀⠈⠲⣄⡀⠀⠀⠀⠀⠀⣀⡤⠒⢉⡴⠃⣸⠀⠀⢰⣿⣿⣿⠃⡤⠊⠁⠉⠑⢄⠀⠀⠀
+⡇⠀⠀⠀⠀⠀⢸⠀⣿⣾⣿⢿⠲⣄⠀⠀⠀⠀⠘⠟⣦⣤⣴⡒⠉⢀⡠⠖⠉⠀⣠⠃⠀⣠⣿⣿⡿⠁⠊⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⢸⠀⣿⠛⢿⠈⢢⠏⠀⠀⠀⠀⠀⣰⣏⣀⣿⠗⠊⠁⠀⠀⣠⣾⠃⢀⡴⠿⠛⣿⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⢸⢀⠇⠀⠈⢠⠃⠀⠀⠀⠀⠀⢰⠟⠁⠀⢹⢇⠀⣀⠴⠊⡱⠥⠔⠋⠀⠀⢰⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⢸⡟⠀⢀⡴⠁⠀⠀⠀⠀⠀⢠⡟⠀⠀⣰⢿⡘⣾⡅⠀⠀⠀⠀⢀⠄⠀⢠⠏⢀⣄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⢸⠀⣰⣿⠀⠀⠀⠀⠀⠀⢠⣿⠃⢀⡾⡇⠘⠻⡿⢷⡀⠀⠀⠒⠁⠀⢠⠏⢀⠏⣸⠃⢻⠏⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⣧⣾⣹⣿⠀⠀⠀⠀⠀⢠⠏⢉⠀⡞⣰⡇⠀⣴⣥⠞⢷⠀⠀⠀⠀⣠⠎⠀⠸⣶⠋⣠⡟⠀⠀⠀⠀⠀⠀⠀⠀⠀
+EOF
+}
+
+HATSUNE=(
+  "██╗  ██╗ █████╗ ████████╗███████╗██╗   ██╗███╗   ██╗███████╗"
+  "██║  ██║██╔══██╗╚══██╔══╝██╔════╝██║   ██║████╗  ██║██╔════╝"
+  "███████║███████║   ██║   ███████╗██║   ██║██╔██╗ ██║█████╗  "
+  "██╔══██║██╔══██║   ██║   ╚════██║██║   ██║██║╚██╗██║██╔══╝  "
+  "██║  ██║██║  ██║   ██║   ███████║╚██████╔╝██║ ╚████║███████╗"
+  "╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝"
+)
+MIKU=(
+  "███╗   ███╗██╗██╗  ██╗██╗   ██╗"
+  "████╗ ████║██║██║ ██╔╝██║   ██║"
+  "██╔████╔██║██║█████╔╝ ██║   ██║"
+  "██║╚██╔╝██║██║██╔═██╗ ██║   ██║"
+  "██║ ╚═╝ ██║██║██║  ██╗╚██████╔╝"
+  "╚═╝     ╚═╝╚═╝╚═╝  ╚═╝ ╚═════╝ "
+)
+SPPAT="♪ ♫ ･ﾟ✧   ✧ﾟ･ ♫ ♪  "
+SPARK=""
+
+for ((i = 0; i < 40; i++)); do
+  SPARK+="$SPPAT"
+done # long sparkle line that slides along
+
+# ───────────────────────── state ─────────────────────────
+TRACKS=() # full paths
+NAMES=()  # nice names for display
+INDEX=0   # which track is current
+VOL=70
+SHUFFLE=0
+MPV_PID="" # pid of the running mpv ("" = nothing playing)
+PAUSED=0
+FAILED=0 # 1 = mpv couldn't play the current file
+POS=0    # seconds played
+DUR=0    # song length in seconds (0 = unknown yet)
+SEED=$RANDOM
+OFF=0 # sparkle offset
+HAVE_LOLCAT=0
+command -v lolcat >/dev/null 2>&1 && [ -z "${NO_COLOR:-}" ] && HAVE_LOLCAT=1
+
+# ───────────────────────── library ─────────────────────────
+# load_tracks ARG...  — every ARG is a folder (searched recursively) or a single file
+load_tracks() {
+  local arg found=()
+  for arg in "$@"; do
+    if [ -d "$arg" ]; then
+      mapfile -t found < <(find "$arg" -type f | grep -Ei "$EXT_RE" | sort -V)
+      TRACKS+=("${found[@]}")
+    elif [ -f "$arg" ]; then
+      TRACKS+=("$arg")
+    fi
+  done
+
+  local t name
+
+  for t in "${TRACKS[@]}"; do
+    name=${t##*/}   # drop folders
+    name=${name%.*} # drop extension
+    NAMES+=("${name//_/ }")
+  done
+
+  # ASCII Miku: your own file wins, otherwise the one built into this script will be used
+  if [ -r "$ART_FILE" ]; then mapfile -t ART <"$ART_FILE"; else mapfile -t ART < <(miku_art); fi
+  AW=0
+  local l
+  for l in "${ART[@]}"; do [ "${#l}" -gt "$AW" ] && AW=${#l}; done
+}
+
+# ───────────────────────── mpv control ─────────────────────────
+# start_mpv SECONDS — (re)start the current track at SECONDS
+start_mpv() {
+  stop_mpv
+  : >"$STATUS" # empty the status file first so an old line is never read
+  mpv --no-video --input-terminal=no --msg-level=all=no,statusline=status \
+    --volume="$VOL" --start="$1" --term-status-msg='${time-pos} ${duration}' \
+    -- "${TRACKS[INDEX]}" </dev/null >"$STATUS" 2>&1 &
+  MPV_PID=$!
+  POS=$1
+  PAUSED=0
+  FAILED=0
+}
+
+stop_mpv() {
+  [ -z "$MPV_PID" ] && return
+  kill -CONT "$MPV_PID" 2>/dev/null # a frozen (paused) mpv ignores SIGTERM until it's resumed
+  kill "$MPV_PID" 2>/dev/null
+  wait "$MPV_PID" 2>/dev/null
+  MPV_PID=""
+}
+
+go_to() { # go_to INDEX — jump to a track and play it from the start
+  INDEX=$1
+  DUR=0
+  start_mpv 0
+}
+
+next_track() {
+  if [ "$SHUFFLE" -eq 1 ]; then
+    go_to $((RANDOM % ${#TRACKS[@]}))
+  else
+    go_to $(((INDEX + 1) % ${#TRACKS[@]}))
+  fi
+}
+
+prev_track() { go_to $(((INDEX + ${#TRACKS[@]} - 1) % ${#TRACKS[@]})); }
+
+toggle_pause() {
+  [ -z "$MPV_PID" ] && return
+  if [ "$PAUSED" -eq 1 ]; then
+    kill -CONT "$MPV_PID"
+    PAUSED=0
+  else
+    kill -STOP "$MPV_PID"
+    PAUSED=1
+  fi
+}
+
+seek() { # seek SECONDS (negative = backwards)
+  [ -z "$MPV_PID" ] && return
+  read_status
+  local to=$((POS + $1))
+  [ "$to" -lt 0 ] && to=0
+
+  if [ "$DUR" -gt 0 ] && [ "$to" -ge "$DUR" ]; then
+    next_track
+  else
+    start_mpv "$to"
+  fi
+}
+
+change_volume() {
+  VOL=$((VOL + $1))
+  [ "$VOL" -gt 100 ] && VOL=100
+  [ "$VOL" -lt 0 ] && VOL=0
+  [ -z "$MPV_PID" ] && return
+  read_status
+  start_mpv "$POS" # restart at the same spot with the new volume
+}
+
+# "01:02:03" or "02:03" → seconds in RET (anything else → 0)
+to_secs() {
+  RET=0
+  [[ $1 =~ ^[0-9]+(:[0-9]+)*$ ]] || return
+  local IFS=: part
+
+  for part in $1; do
+    RET=$((RET * 60 + 10#$part))
+  done
+}
+
+fmt_time() { printf -v RET '%02d:%02d' $(($1 / 60)) $(($1 % 60)); } # seconds → "mm:ss" in RET
+
+# mpv's last status line looks like "00:01:23 00:03:45" (position, length)
+read_status() {
+  local line a b
+  line=$(tail -n 1 "$STATUS" 2>/dev/null)
+  [ -z "$line" ] && return
+  read -r a b <<<"$line"
+  to_secs "$a"
+  POS=$RET
+  to_secs "$b"
+  DUR=$RET
+}
+
+# runs every loop: slide the sparkles, refresh the time, notice when a song ends
+update() {
+  OFF=$(((OFF + 1) % ${#SPPAT}))
+  [ -z "$MPV_PID" ] && return
+  read_status
+
+  if ! kill -0 "$MPV_PID" 2>/dev/null; then # mpv exited on its own
+    wait "$MPV_PID"                         # its exit code: 0 = played fine
+    if [ $? -eq 0 ]; then
+      next_track
+    else
+      FAILED=1
+      MPV_PID=""
+    fi
+  fi
+}
+
+# ───────────────────────── drawing helpers ─────────────────────────
+rep() { # rep CHAR COUNT
+  local s
+  printf -v s '%*s' "$2" ''
+  printf '%s' "${s// /$1}"
+}
+
+get_size() {
+  local s
+  s=$({ stty size </dev/tty; } 2>/dev/null)
+  ROWS=${s% *}
+  COLS=${s#* }
+
+  if ! [[ $ROWS =~ ^[0-9]+$ && $COLS =~ ^[0-9]+$ ]]; then
+    ROWS=${LINES:-24}
+    COLS=${COLUMNS:-80}
+  fi
+
+  [ "$ROWS" -lt 5 ] && ROWS=24 # some odd terminals report 0x0
+  [ "$COLS" -lt 20 ] && COLS=80
+}
+
+grad() { # grad i last → rgb escape on the teal→pink gradient
+  local i=$1 last=$2
+  [ "$last" -lt 1 ] && last=1
+  rgb $((57 + (225 - 57) * i / last)) $((197 + (40 - 197) * i / last)) $((187 + (133 - 187) * i / last))
+}
+
+# the lines in rainbow colors (lolcat) or the teal→pink gradient
+rainbow() {
+  local freq=$1 i
+  shift
+  local lines=("$@") out=()
+  RAINBOW=()
+
+  if [ "$HAVE_LOLCAT" -eq 1 ]; then
+    mapfile -t out < <(printf '%s\n' "${lines[@]}" | lolcat -f -t -S "$SEED" -F "$freq" 2>/dev/null)
+  fi
+
+  if [ "${#out[@]}" -eq "${#lines[@]}" ]; then
+    for i in "${!out[@]}"; do
+      RAINBOW+=("${out[i]}$RST")
+    done
+  else
+    for i in "${!lines[@]}"; do
+      RAINBOW+=("$(grad "$i" $((${#lines[@]} - 1)))${lines[i]}$RST")
+    done
+  fi
+}
+
+# color the banner + art
+build_colors() {
+  [ "$COLOR_KEY" = "$COLS/$SEED" ] && return
+  COLOR_KEY="$COLS/$SEED"
+  local logo=() art=() i l pad sp
+
+  # banner: pick the biggest version that fits
+  if [ "$COLS" -ge 98 ]; then
+    for i in 0 1 2 3 4 5; do
+      logo+=("${HATSUNE[i]}   ${MIKU[i]}")
+    done
+  elif [ "$COLS" -ge 64 ]; then
+    logo=("${HATSUNE[@]}" "${MIKU[@]}")
+  else
+    logo=("♪ H A T S U N E   M I K U ♪")
+  fi
+
+  pad=$(((COLS - ${#logo[0]}) / 2))
+  [ "$pad" -lt 0 ] && pad=0
+  printf -v sp '%*s' "$pad" ''
+
+  for i in "${!logo[@]}"; do
+    logo[i]="$sp${logo[i]}"
+  done
+
+  rainbow 0.08 "${logo[@]}"
+  BANNER_LINES=()
+
+  for l in "${RAINBOW[@]}"; do
+    BANNER_LINES+=("$BOLD$l")
+  done
+
+  # art: every line padded to the same width
+  for l in "${ART[@]}"; do
+    printf -v l '%-*s' "$AW" "$l"
+    art+=("$l")
+  done
+
+  rainbow 0.15 "${art[@]}"
+  ART_COLORED=("${RAINBOW[@]}")
+}
+
+# boxrow "coloured text" VISIBLE_LENGTH → ROW : one line of the box, padded to fit
+boxrow() {
+  local pad=$((INNER - $2))
+  [ "$pad" -lt 0 ] && pad=0
+  printf -v ROW '%s│ %s%s%*s %s│%s' "$PINK" "$RST" "$1" "$pad" '' "$PINK" "$RST"
+}
+
+# the "now playing" box (+ art next to it when the terminal is wide enough)
+build_body() {
+  local side=0 BW
+
+  if [ "$COLS" -ge $((AW + 3 + 50)) ] && [ "${#ART[@]}" -gt 0 ]; then
+    side=1
+    BW=$((COLS - AW - 3 - 4))
+  else
+    BW=$((COLS - 4))
+  fi
+
+  [ "$BW" -gt 66 ] && BW=66
+  [ "$BW" -lt 20 ] && BW=20
+  INNER=$((BW - 4))
+
+  local box=() head shown icon="▶" cur total bar_w filled
+  [ "$PAUSED" -eq 1 ] && icon="‖"
+
+  # top border with the track number
+  head="♪ #$((INDEX + 1))/${#TRACKS[@]} ♪"
+  box+=("$PINK╭─ $LTEAL$head$PINK $(rep ─ $((BW - ${#head} - 5)))╮$RST")
+  boxrow "" 0
+  box+=("$ROW")
+
+  # song title (cut with … if too long)
+  shown=${NAMES[INDEX]}
+  [ "${#shown}" -gt "$INNER" ] && shown="${shown:0:INNER-1}…"
+  boxrow "$BOLD$TEAL$shown$RST" "${#shown}"
+  box+=("$ROW")
+  boxrow "" 0
+  box+=("$ROW")
+
+  # progress:  ▶ 01:23 ━━━━━────── 03:45
+  fmt_time "$POS"
+  cur=$RET
+  total="--:--"
+  [ "$DUR" -gt 0 ] && {
+    fmt_time "$DUR"
+    total=$RET
+  }
+  bar_w=$((INNER - 14))
+  [ "$bar_w" -lt 0 ] && bar_w=0
+  filled=0
+  [ "$DUR" -gt 0 ] && filled=$((POS * bar_w / DUR))
+  [ "$filled" -gt "$bar_w" ] && filled=$bar_w
+  boxrow "$PINK$icon$RST $LTEAL$cur$RST $TEAL$(rep ━ "$filled")$DIM$(rep ─ $((bar_w - filled)))$RST $LTEAL$total$RST" $((bar_w + 14))
+  box+=("$ROW")
+
+  # an error line (blank when everything is fine)
+  if [ "$FAILED" -eq 1 ]; then
+    boxrow "${PINK}can't play this file :($RST" 23
+  else
+    boxrow "" 0
+  fi
+
+  box+=("$ROW")
+  box+=("$PINK╰$(rep ─ $((BW - 2)))╯$RST")
+
+  # under the box: volume + shuffle, and next song
+  local v=$((VOL / 10)) mode="off"
+  [ "$SHUFFLE" -eq 1 ] && mode="on"
+  box+=("")
+  box+=("${LEEK}vol $(rep ▮ "$v")$(rep ▯ $((10 - v))) $VOL%   shuffle: $mode$RST")
+
+  if [ "$SHUFFLE" -eq 0 ]; then
+    shown=${NAMES[(INDEX + 1) % ${#TRACKS[@]}]}
+    box+=("${DIM}next ▸ ${shown:0:BW-7}$RST")
+  fi
+
+  # glue art (left) and box (right) together, centred on the screen
+  BODY=()
+  local rows=${#box[@]} total_w=$BW pre sp blank i
+
+  if [ "$side" -eq 1 ]; then
+    [ "${#ART[@]}" -gt "$rows" ] && rows=${#ART[@]}
+    total_w=$((AW + 3 + BW))
+  fi
+
+  pre=$(((COLS - total_w) / 2))
+  [ "$pre" -lt 0 ] && pre=0
+  printf -v sp '%*s' "$pre" ''
+  printf -v blank '%*s' "$AW" ''
+
+  for ((i = 0; i < rows; i++)); do
+    if [ "$side" -eq 1 ]; then
+      BODY+=("$sp${ART_COLORED[i]:-$blank}   ${box[i]:-}")
+    else
+      BODY+=("$sp${box[i]:-}")
+    fi
+  done
+}
+
+# the whole screen as a list of lines
+compose() {
+  local w=$((COLS - 4)) p=${#SPPAT}
+  build_colors
+  build_body
+  SCREEN=("  $LTEAL${SPARK:$OFF:$w}$RST" "")
+  SCREEN+=("${BANNER_LINES[@]}")
+  SCREEN+=("" "  $LTEAL${SPARK:$(((p - OFF) % p)):$w}$RST" "")
+  SCREEN+=("${BODY[@]}")
+}
+
+footer() {
+  local fp="" fc="" pair k d pre
+
+  for pair in "space|pause" "n/p|track" "←/→|seek" "↑/↓|volume" "s|shuffle" "l|rainbow" "q|quit"; do
+    k=${pair%%|*}
+    d=${pair#*|}
+    [ $((${#fp} + ${#k} + ${#d} + 6)) -gt "$COLS" ] && break # stop when it no longer fits
+    fp+="[$k] $d   "
+    fc+="$PINK[$k]$RST $DIM$d$RST   "
+  done
+
+  pre=$(((COLS - ${#fp}) / 2))
+  [ "$pre" -lt 0 ] && pre=0
+  printf '\e[%d;1H\e[2K%*s%s' "$ROWS" "$pre" '' "$fc"
+}
+
+# redraw without clearing the screen first (no flicker): every line ends with "erase to end of line"
+draw() {
+  local out=$'\e[H' line
+  get_size
+
+  if [ "$SIZE_KEY" != "$ROWS/$COLS" ]; then # terminal was resized → clear once
+    SIZE_KEY="$ROWS/$COLS"
+    out=$'\e[2J\e[H'
+  fi
+
+  compose
+
+  for line in "${SCREEN[@]:0:ROWS-1}"; do
+    out+="$line"$'\e[K\n'
+  done
+
+  printf '%s\e[J' "$out"
+  footer
+}
+
+# ───────────────────────── the TUI ─────────────────────────
+IN_TUI=0
+cleanup() {
+  stop_mpv # never leave music playing after quitting
+  [ -n "$TMP" ] && rm -rf "$TMP"
+
+  if [ "$IN_TUI" -eq 1 ]; then
+    IN_TUI=0
+    printf '\e[?25h\e[?1049l\e[H\e[2J' # show cursor, leave alt screen, clear
+    [ -n "$OLD_STTY" ] && stty "$OLD_STTY" 2>/dev/null
+  fi
+}
+
+run_tui() {
+  local key rest
+  OLD_STTY=$(stty -g 2>/dev/null)
+  IN_TUI=1
+  trap cleanup EXIT
+  trap 'exit 0' INT TERM HUP
+  printf '\e[?1049h\e[?25l'
+
+  go_to 0 # start with the first song
+  while true; do
+    if IFS= read -rsn1 -t 0.35 key; then
+      if [ "$key" = $'\e' ]; then # arrow keys arrive as [ A/B/C/D
+        rest=""
+        IFS= read -rsn2 -t 0.05 rest
+        case "$rest" in
+        '[C') seek "$SEEK_STEP" ;;
+        '[D') seek "-$SEEK_STEP" ;;
+        '[A') change_volume "$VOL_STEP" ;;
+        '[B') change_volume "-$VOL_STEP" ;;
+        '') break ;; # plain Esc = quit
+        esac
+      else
+        case "$key" in
+        q | Q) break ;;
+        ' ' | '') toggle_pause ;;
+        n | N) next_track ;;
+        p | P) prev_track ;;
+        s | S) SHUFFLE=$((1 - SHUFFLE)) ;;
+        l | L) SEED=$RANDOM ;;
+        esac
+      fi
+    fi
+    update
+    draw
+  done
+}
+
+# ───────────────────────── main ─────────────────────────
+case "${1:-}" in
+-h | --help)
+  sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
+  exit 0
+  ;;
+esac
+
+command -v mpv >/dev/null 2>&1 || {
+  echo "project-bash: mpv is required (install it with your package manager) :(" >&2
+  exit 1
+}
+[ -t 0 ] && [ -t 1 ] || {
+  echo "project-bash: needs an interactive terminal" >&2
+  exit 1
+}
+
+if [ $# -eq 0 ]; then
+  load_tracks "$MUSIC_DIR"
+else
+  load_tracks "$@"
+fi
+
+if [ "${#TRACKS[@]}" -eq 0 ]; then
+  echo "project-bash: no songs found (looked in: ${*:-$MUSIC_DIR}) :(" >&2
+  exit 1
+fi
+
+TMP=$(mktemp -d)
+STATUS="$TMP/status" # mpv writes its progress here
+run_tui
+exit 0
