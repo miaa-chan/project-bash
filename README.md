@@ -20,19 +20,20 @@
 
 ## ♡ What you need
 
-| | |
+| Dependency | Necessity |
 |---|---|
 | **`mpv`** | required, it plays the audio (`sudo pacman -S mpv` / `sudo apt install mpv`) |
 | **`lolcat`** | optional, makes the banner and art truly RGB rainbow. Without it you get the teal → pink gradient |
-| A terminal with **truecolor + UTF-8** | most modern ones (kitty, alacritty, foot, wezterm, xfce4-terminal...) |
+| A terminal with **truecolor + UTF-8** | required, most modern ones (kitty, alacritty, foot, wezterm, xfce4-terminal...) support it |
 
 ## ✿ Install
+Clone repository, change directory and execute these commands:
 
 ```bash
 chmod +x project-bash
 mv project-bash (Your PATH, check with "echo $PATH")
 ```
-...or you can let the Makefile do it for you. Just run `make install` :3
+...or you can let the Makefile do it for you. Just run `make install`. You can also update with `make update`. :3
 
 ## ♪ Usage
 
