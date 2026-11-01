@@ -1,5 +1,7 @@
 <sup> Not affiliated with Project DIVA or any Miku game. This is a completely different project. </sup>
 
+<sup> Project Bash is licensed under Apache 2.0. See [LICENSE](LICENSE) for the full text. </sup>
+
 <div align="center">
 
 # ♪ Hatsune Miku: Project BASH ♪
@@ -50,7 +52,7 @@ When the last song ends it loops back to the first, so the music never stops unl
 |---|---|
 | `space` / `enter` | pause · resume |
 | `n` / `p` | next · previous song |
-| `←` / `→` | seek back · forward (10 s) |
+| `←` / `→` | go back · forward (10 s) |
 | `↑` / `↓` | volume up · down (5 %) |
 | `s` | shuffle on / off |
 | `l` | re-roll the rainbow colors ✧ (needs lolcat) |
